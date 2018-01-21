@@ -1,5 +1,6 @@
 import datetime
 import os
+import random
 import socket
 import sys
 from datetime import datetime as dt
@@ -19,9 +20,10 @@ class Balancer(object):
         self.targets = targets
         self.counter = 0
 
-    def send(self, message, target):
-        self.sock.sendto(message, (TARGET_IP, target))
-        self.counter += 1
+    def send(self, message, target, drop_probability=0.2):
+        if random.random() > drop_probability:
+            self.sock.sendto(message, (TARGET_IP, target))
+            self.counter += 1
 
     def broadcast(self, reset=False):
         task = 'reset' if reset else 'broadcast'
@@ -29,7 +31,7 @@ class Balancer(object):
         message = encode_bencode(payload)
 
         for target in self.targets:
-            self.send(message, target)
+            self.send(message, target, drop_probability=0)
 
     def execute(self, command):
         if command[0] == 'broadcast':
@@ -53,20 +55,30 @@ class Balancer(object):
             target = self.targets[self.counter % len(self.targets)]
             if os.getenv('BALANCER_DEBUG'):
                 dispatch_status(command[0], 'request', 'to', target)
-            self.send(message, target)
 
-            try:
-                self.sock.settimeout(1)
-                response, address = self.sock.recvfrom(1024)
+            attempt = 0
+            while attempt < 3:
                 if os.getenv('BALANCER_DEBUG'):
-                    dispatch_status(command[0], 'response', 'from', target)
-                result = decode_bencode(response)
-                output = result[6] + '\n' if command[0] == 'get' else 'success!\n'
-                sys.stderr.write(output)
+                    sys.stderr.write(str(dt.now()) + ' INFO attempt ' + str(attempt + 1) + ' of 3\n')
+                self.send(message, target)
 
-            except socket.timeout:
-                if os.getenv('BALANCER_DEBUG'):
-                    sys.stderr.write(str(dt.now()) + ' WARN timeout\n')
+                try:
+                    self.sock.settimeout(1)
+                    response, address = self.sock.recvfrom(1024)
+                    if os.getenv('BALANCER_DEBUG'):
+                        dispatch_status(command[0], 'response', 'from', target)
+                    result = decode_bencode(response)
+                    output = result[6] + '\n' if command[0] == 'get' else 'success!\n'
+                    sys.stderr.write(output)
+                    break
+
+                except socket.timeout:
+                    if os.getenv('BALANCER_DEBUG'):
+                        sys.stderr.write(str(dt.now()) + ' WARN timeout\n')
+
+                attempt += 1
+                if attempt == 3:
+                    sys.stderr.write('failed!\n')
 
     def listen(self):
         while True:

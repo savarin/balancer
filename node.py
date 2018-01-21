@@ -1,5 +1,6 @@
 import datetime
 import os
+import random
 import socket
 import sys
 from datetime import datetime as dt
@@ -20,9 +21,10 @@ class Node(object):
         self.counter = 0
         self.record = 0
 
-    def send(self, message, target, ip_address):
-        self.sock.sendto(message, (ip_address, target))
-        self.counter += 1
+    def send(self, message, target, ip_address, drop_probability=0.2):
+        if random.random() > drop_probability:
+            self.sock.sendto(message, (ip_address, target))
+            self.counter += 1
 
     def get(self, key):
         return self.data.get(key, '')
@@ -39,7 +41,7 @@ class Node(object):
 
         for peer in self.peers:
             dispatch_status(payload[1], payload[0], 'to', peer)
-            self.send(message, peer, SOURCE_IP)
+            self.send(message, peer, SOURCE_IP, drop_probability=0)
             try:
                 self.sock.settimeout(1)
                 response, address = self.sock.recvfrom(1024)
