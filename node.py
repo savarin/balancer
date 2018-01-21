@@ -6,8 +6,7 @@ import sys
 from helpers import parse_arguments, bind_socket, encode_bencode, decode_bencode
 
 
-SOURCE_IP = os.getenv('BALANCER_IP_ADDRESS')
-TARGET_IP = os.getenv('NODE_IP_ADDRESS')
+SOURCE_IP = os.getenv('NODE_IP_ADDRESS')
 
 
 class Node(object):
@@ -19,12 +18,8 @@ class Node(object):
         self.counter = 0
         self.record = 0
 
-    def compose(self, task, key, value=None):
-        payload = ['res', task, self.counter, 'key', key, 'value', value]
-        return encode_bencode(payload)
-
-    def send(self, message, target):
-        self.sock.sendto(message, (TARGET_IP, target))
+    def send(self, message, target, ip_address):
+        self.sock.sendto(message, (ip_address, target))
         self.counter += 1
 
     def get(self, key):
@@ -37,12 +32,12 @@ class Node(object):
         self.data = {}
 
     def relay(self, key):
-        payload = ['rel', 'get', str(self.counter), 'key', key]
+        payload = ['rel', 'get', str(self.counter), 'key', key, 'value', '']
         message = encode_bencode(payload)
 
         for peer in self.peers:
             sys.stderr.write(str(message) + str(peer) + '\n')
-            self.send(message, peer)
+            self.send(message, peer, SOURCE_IP)
             try:
                 self.sock.settimeout(1)
                 response, address = self.sock.recvfrom(1024)
@@ -51,7 +46,7 @@ class Node(object):
             except socket.timeout:
                 sys.stderr.write(str(datetime.datetime.now()) + ' WARN timeout\n')
                 
-    def execute(self, message, target):
+    def execute(self, message, target, ip_address):
         payload = decode_bencode(message)
 
         if payload[1] == 'broadcast':
@@ -71,21 +66,21 @@ class Node(object):
             value = self.get(key) if payload[1] == 'get' else payload[6]
 
             if payload[1] == 'get' and not value:
-                result = self.relay(key) or ''  # returns empty string if result in None
+                value = self.relay(key) or ''  # returns empty string if result in None
 
             if payload[1] == 'set':
                 self.set(key, value)
 
             payload = ['res', payload[1], self.counter, 'key', key, 'value', value]
             message = encode_bencode(payload)
-            self.send(message, target)
+            self.send(message, target, ip_address)
 
     def listen(self):
         while True:
             try:
                 self.sock.settimeout(3)
                 request, address = self.sock.recvfrom(1024)
-                self.execute(request, address[1])
+                self.execute(request, address[1], address[0])
             except socket.timeout:
                 sys.stderr.write('.\n')
 
