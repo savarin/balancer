@@ -9,10 +9,10 @@ def exit_with_stderr(comments):
     sys.exit(1)
 
 
-def parse_arguments(balancer=False):
+def parse_arguments():
     try:
         source = int(sys.argv[1])
-        targets = [int(_) for _ in sys.argv[2:]] if balancer else None
+        targets = [int(_) for _ in sys.argv[2:]]
     except IndexError:
         exit_with_stderr("please specify a port number!")
     except ValueError:
