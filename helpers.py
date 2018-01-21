@@ -2,6 +2,7 @@ import itertools
 import re
 import socket
 import sys
+from datetime import datetime as dt
 
 
 def exit_with_stderr(comments):
@@ -25,6 +26,11 @@ def bind_socket(ip_address, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((ip_address, port))
     return sock
+
+
+def dispatch_status(task, method, direction, location):
+    sys.stderr.write('{} INFO {} {} {} {} \n'\
+        .format(dt.now(), task, method, direction, str(location)))
 
 
 def encode_bencode(element):

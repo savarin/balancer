@@ -2,8 +2,10 @@ import datetime
 import os
 import socket
 import sys
+from datetime import datetime as dt
 
-from helpers import parse_arguments, bind_socket, encode_bencode, decode_bencode
+from helpers import parse_arguments, bind_socket, dispatch_status, \
+    encode_bencode, decode_bencode
 
 
 SOURCE_IP = os.getenv('BALANCER_IP_ADDRESS')
@@ -32,19 +34,17 @@ class Balancer(object):
     def execute(self, command):
         if command[0] == 'broadcast':
             if os.getenv('BALANCER_DEBUG'):
-                sys.stderr.write(str(datetime.datetime.now()) + ' INFO cluster broadcast\n')
+                sys.stderr.write(str(dt.now()) + ' INFO cluster broadcast\n')
             self.broadcast()
             pass
 
         elif command[0] == 'reset':
             if os.getenv('BALANCER_DEBUG'):
-                sys.stderr.write(str(datetime.datetime.now()) + ' WARN database reset\n')
+                sys.stderr.write(str(dt.now()) + ' WARN database reset\n')
             self.broadcast(reset=True)
             pass
 
         elif command[0] in ['get', 'set']:
-            if os.getenv('BALANCER_DEBUG'):
-                sys.stderr.write(str(datetime.datetime.now()) + ' INFO ' + command[0] + ' request' + '\n')
             key = command[1]
             value = '' if command[0] == 'get' else command[2]
             payload = ['request', command[0], self.counter, 'key', key, 'value', value]
@@ -52,19 +52,21 @@ class Balancer(object):
 
             target = self.targets[self.counter % len(self.targets)]
             if os.getenv('BALANCER_DEBUG'):
-                sys.stderr.write(str(datetime.datetime.now()) + ' INFO send to ' + str(target) + '\n')
+                dispatch_status(command[0], 'request', 'to', target)
             self.send(message, target)
 
             try:
                 self.sock.settimeout(1)
                 response, address = self.sock.recvfrom(1024)
+                if os.getenv('BALANCER_DEBUG'):
+                    dispatch_status(command[0], 'response', 'from', target)
                 result = decode_bencode(response)
                 output = result[6] + '\n' if command[0] == 'get' else 'success!\n'
                 sys.stderr.write(output)
 
             except socket.timeout:
                 if os.getenv('BALANCER_DEBUG'):
-                    sys.stderr.write(str(datetime.datetime.now()) + ' WARN timeout\n')
+                    sys.stderr.write(str(dt.now()) + ' WARN timeout\n')
 
     def listen(self):
         while True:

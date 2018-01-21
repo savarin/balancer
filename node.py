@@ -2,8 +2,10 @@ import datetime
 import os
 import socket
 import sys
+from datetime import datetime as dt
 
-from helpers import parse_arguments, bind_socket, encode_bencode, decode_bencode
+from helpers import parse_arguments, bind_socket, dispatch_status, \
+    encode_bencode, decode_bencode
 
 
 SOURCE_IP = os.getenv('NODE_IP_ADDRESS')
@@ -36,48 +38,48 @@ class Node(object):
         message = encode_bencode(payload)
 
         for peer in self.peers:
-            sys.stderr.write(str(datetime.datetime.now()) + ' INFO ' + payload[1] + ' ' + payload[0] + ' to ' + str(peer) + '\n')
+            dispatch_status(payload[1], payload[0], 'to', peer)
             self.send(message, peer, SOURCE_IP)
             try:
                 self.sock.settimeout(1)
                 response, address = self.sock.recvfrom(1024)
-                sys.stderr.write(str(datetime.datetime.now()) + ' INFO ' + payload[1] + ' ' + payload[0] + ' from ' + str(peer) + '\n')
+                dispatch_status(payload[1], payload[0], 'from', peer)
                 result = decode_bencode(response)
                 if result[6]:
                     return result[6]
             except socket.timeout:
-                sys.stderr.write(str(datetime.datetime.now()) + ' WARN timeout\n')
+                sys.stderr.write(str(dt.now()) + ' WARN timeout\n')
 
     def execute(self, message, target, ip_address):
         payload = decode_bencode(message)
 
         if payload[1] == 'broadcast':
             if not self.data:
-                sys.stderr.write(str(datetime.datetime.now()) + ' WARN database empty\n')
+                sys.stderr.write(str(dt.now()) + ' WARN database empty\n')
                 pass
 
-            sys.stderr.write(str(datetime.datetime.now()) + ' INFO database content\n')
+            sys.stderr.write(str(dt.now()) + ' INFO database content\n')
             for key, value in self.data.iteritems():
                 sys.stderr.write(key + ': ' + value + '\n')
 
         elif payload[1] == 'reset':
             self.reset()
-            sys.stderr.write(str(datetime.datetime.now()) + ' INFO database reset\n')
+            sys.stderr.write(str(dt.now()) + ' INFO database reset\n')
 
         elif payload[1] in ['get', 'set']:
-            sys.stderr.write(str(datetime.datetime.now()) + ' INFO ' + payload[1] + ' ' + payload[0] + ' from ' + str(target) + '\n')
+            dispatch_status(payload[1], payload[0], 'from', target)
             key = payload[4]
             value = self.get(key) if payload[1] == 'get' else payload[6]
 
             if payload[0] == 'request' and payload[1] == 'get' and not value:
-                value = self.relay(key) or ''  # returns empty string if result in None
+                value = self.relay(key) or ''  # returns empty string if result is None
 
             if payload[1] == 'set':
                 self.set(key, value)
 
             payload = ['response', payload[1], self.counter, 'key', key, 'value', value]
             message = encode_bencode(payload)
-            sys.stderr.write(str(datetime.datetime.now()) + ' INFO ' + payload[1] + ' ' + payload[0] + ' to ' + str(target) + '\n')
+            dispatch_status(payload[1], payload[0], 'to', target)
             self.send(message, target, ip_address)
 
     def listen(self):
