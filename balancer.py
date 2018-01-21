@@ -23,7 +23,7 @@ class Balancer(object):
 
     def broadcast(self, reset=False):
         task = 'reset' if reset else 'broadcast'
-        payload = ['req', task, str(self.counter)]
+        payload = ['request', task, str(self.counter)]
         message = encode_bencode(payload)
 
         for target in self.targets:
@@ -31,24 +31,29 @@ class Balancer(object):
 
     def execute(self, command):
         if command[0] == 'broadcast':
+            if os.getenv('BALANCER_DEBUG'):
+                sys.stderr.write(str(datetime.datetime.now()) + ' INFO cluster broadcast\n')
             self.broadcast()
             pass
 
         elif command[0] == 'reset':
+            if os.getenv('BALANCER_DEBUG'):
+                sys.stderr.write(str(datetime.datetime.now()) + ' WARN database reset\n')
             self.broadcast(reset=True)
             pass
 
         elif command[0] in ['get', 'set']:
+            if os.getenv('BALANCER_DEBUG'):
+                sys.stderr.write(str(datetime.datetime.now()) + ' INFO ' + command[0] + ' request' + '\n')
             key = command[1]
             value = '' if command[0] == 'get' else command[2]
-            payload = ['req', command[0], self.counter, 'key', key, 'value', value]
+            payload = ['request', command[0], self.counter, 'key', key, 'value', value]
             message = encode_bencode(payload)
 
+            target = self.targets[self.counter % len(self.targets)]
             if os.getenv('BALANCER_DEBUG'):
-                sys.stderr.write(str(datetime.datetime.now()) + ' INFO ' + command[0] + '\n')
-
-            destination = self.targets[self.counter % len(self.targets)]
-            self.send(message, destination)
+                sys.stderr.write(str(datetime.datetime.now()) + ' INFO send to ' + str(target) + '\n')
+            self.send(message, target)
 
             try:
                 self.sock.settimeout(1)
