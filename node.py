@@ -36,6 +36,21 @@ class Node(object):
     def reset(self):
         self.data = {}
 
+    def relay(self, key):
+        payload = ['rel', 'get', str(self.counter), 'key', key]
+        message = encode_bencode(payload)
+
+        for peer in self.peers:
+            sys.stderr.write(str(message) + str(peer) + '\n')
+            self.send(message, peer)
+            try:
+                self.sock.settimeout(1)
+                response, address = self.sock.recvfrom(1024)
+                result = decode_bencode(response)
+                return result[6]
+            except socket.timeout:
+                sys.stderr.write(str(datetime.datetime.now()) + ' WARN timeout\n')
+                
     def execute(self, message, target):
         payload = decode_bencode(message)
 
@@ -55,12 +70,15 @@ class Node(object):
             key = payload[4]
             value = self.get(key) if payload[1] == 'get' else payload[6]
 
+            if payload[1] == 'get' and not value:
+                result = self.relay(key) or ''  # returns empty string if result in None
+
             if payload[1] == 'set':
                 self.set(key, value)
 
-            if int(payload[2]) >= 0:    # negative counter values ensures no response
-                message = self.compose(payload[1], key, value)
-                self.send(message, target)
+            payload = ['res', payload[1], self.counter, 'key', key, 'value', value]
+            message = encode_bencode(payload)
+            self.send(message, target)
 
     def listen(self):
         while True:

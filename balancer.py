@@ -17,20 +17,16 @@ class Balancer(object):
         self.targets = targets
         self.counter = 0
 
-    def compose(self, task, key, value=None):
-        payload = ['req', task, self.counter, 'key', key, 'value', value]
-        return encode_bencode(payload)
-
     def send(self, message, target):
         self.sock.sendto(message, (TARGET_IP, target))
         self.counter += 1
 
     def broadcast(self, reset=False):
         task = 'reset' if reset else 'broadcast'
+        payload = ['req', task, str(self.counter)]
+        message = encode_bencode(payload)
 
         for target in self.targets:
-            payload = ['req', task, str(self.counter)]
-            message = encode_bencode(payload)
             self.send(message, target)
 
     def execute(self, command):
@@ -43,8 +39,11 @@ class Balancer(object):
             pass
 
         elif command[0] in ['get', 'set']:
+            key = command[1]
             value = '' if command[0] == 'get' else command[2]
-            message = self.compose(command[0], command[1], value)
+            payload = ['req', command[0], self.counter, 'key', key, 'value', value]
+            message = encode_bencode(payload)
+
             if os.getenv('BALANCER_DEBUG'):
                 sys.stderr.write(str(datetime.datetime.now()) + ' INFO ' + command[0] + '\n')
 
@@ -57,6 +56,7 @@ class Balancer(object):
                 result = decode_bencode(response)
                 output = result[6] + '\n' if command[0] == 'get' else 'success!\n'
                 sys.stderr.write(output)
+
             except socket.timeout:
                 if os.getenv('BALANCER_DEBUG'):
                     sys.stderr.write(str(datetime.datetime.now()) + ' WARN timeout\n')
