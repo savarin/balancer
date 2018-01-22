@@ -59,20 +59,26 @@ class Node(object):
             self.sock.sendto(message, (BALANCER_IP, target))
 
     def get(self, payload, target):
-        value = self.data.get(payload[4], '')
+        if payload[0] == 'request':
+            value = self.data.get(payload[4], '')
 
-        if payload[0] == 'request' and payload[1] == 'get' and not value:
-            value = self.relay(payload[4]) or ''  # returns empty string if result is None
+            if not value:
+                value = self.relay(payload[4], payload[1]) or ''  # returns empty string if result is None
 
-        result = [payload[0], 'get', self.counter, 'key', payload[4], 'value', value]
-        message = encode_bencode(result)
+            result = [payload[0], 'get', self.counter, 'key', payload[4], 'value', value]
+            message = encode_bencode(result)
 
-        if payload[0] == 'relay':
+            dispatch_status('get', 'response', 'to', target)
+            self.deliver(message, target, identifier=payload[2])
+
+        elif payload[0] == 'relay':
+            value = self.data.get(payload[4], '')
+
+            result = [payload[0], 'get', self.counter, 'key', payload[4], 'value', value]
+            message = encode_bencode(result)
+
+            dispatch_status('get', 'relay', 'to', target)
             self.transmit(message, target)
-            return None
-
-        dispatch_status('get', 'response', 'to', target)
-        self.deliver(message, target, identifier=payload[2])
 
     def set(self, payload, target):
         self.data[payload[4]] = payload[6]
@@ -90,8 +96,8 @@ class Node(object):
         self.record += 1
         self.sock.sendto(message, (NODE_IP, peer))
 
-    def relay(self, key):
-        payload = ['relay', 'get', str(self.record), 'key', key, 'value', '']
+    def relay(self, key, task):
+        payload = ['relay', task, str(self.record), 'key', key, 'value', '']
         message = encode_bencode(payload)
 
         for peer in self.peers:
@@ -126,11 +132,11 @@ class Node(object):
             self.reset()
 
         elif payload[1] == 'get':
-            dispatch_status('get', 'request', 'from', target)
+            dispatch_status('get', payload[0], 'from', target)
             self.get(payload, target)
 
         elif payload[1] == 'set':
-            dispatch_status('set', 'request', 'from', target)
+            dispatch_status('set', payload[0], 'from', target)
             self.set(payload, target)
 
     def listen(self):
