@@ -14,10 +14,11 @@ BALANCER_IP = os.getenv('BALANCER_IP_ADDRESS')
 
 
 class Node(object):
-    def __init__(self, sock, source, peers):
+    def __init__(self, sock, source, peers, timeout=1):
         self.sock = sock
         self.source = source
         self.peers = peers
+        self.timeout = timeout
         self.data = {}
         self.queue = Queue(10)
         self.counter = 0
@@ -27,9 +28,9 @@ class Node(object):
         '''
         Re-sends message in buffer to balancer.
         '''
-        dispatch_status(payload[1], 're-response', 'to', target)
         message = self.queue.data[payload[2]]
         self.sock.sendto(message, (BALANCER_IP, target))
+        dispatch_status(payload[1], 're-response', 'to', target)
 
     def broadcast(self):
         if not self.data:
@@ -44,6 +45,7 @@ class Node(object):
 
     def reset(self):
         self.data = {}
+        self.queue = Queue(10)
         sys.stderr.write(str(dt.now()) + ' WARN database reset\n')
 
     def deliver(self, message, target, drop_probability=0.2, identifier=None):
@@ -73,11 +75,11 @@ class Node(object):
         message = encode_bencode(payload)
 
         for peer in self.peers:
-            dispatch_status(payload[1], payload[0], 'to', peer)
             self.transmit(message, peer)
+            dispatch_status(payload[1], payload[0], 'to', peer)
 
             try:
-                self.sock.settimeout(1)
+                self.sock.settimeout(self.timeout)
                 response, address = self.sock.recvfrom(1024)
                 dispatch_status(payload[1], payload[0], 'from', peer)
                 result = decode_bencode(response)
@@ -97,8 +99,8 @@ class Node(object):
             result = ['response', 'get', self.counter, 'key', payload[4], 'value', value]
             message = encode_bencode(result)
 
-            dispatch_status('get', 'response', 'to', target)
             self.deliver(message, target, identifier=payload[2])
+            dispatch_status('get', 'response', 'to', target)
 
         elif payload[0] == 'relay':
             value = self.data.get(payload[4], '')
@@ -106,8 +108,10 @@ class Node(object):
             result = ['relay', 'get', self.counter, 'key', payload[4], 'value', value]
             message = encode_bencode(result)
 
-            dispatch_status('get', 'relay', 'to', target)
             self.transmit(message, target)
+            dispatch_status('get', 'relay', 'to', target)
+
+        return message
 
     def set(self, payload, target):
         if payload[0] == 'request':
@@ -116,11 +120,11 @@ class Node(object):
             if not value:
                 self.data[payload[4]] = payload[6]
 
-            result = ['response', 'set', self.record, 'key', payload[4], 'value', payload[6]]
+            result = ['response', 'set', self.counter, 'key', payload[4], 'value', payload[6]]
             message = encode_bencode(result)
 
-            dispatch_status('set', 'response', 'to', target)
             self.deliver(message, target, identifier=payload[2])
+            dispatch_status('set', 'response', 'to', target)
 
         elif payload[0] == 'relay':
             value = ''
@@ -132,11 +136,13 @@ class Node(object):
             result = ['relay', 'set', self.record, 'key', payload[4], 'value', value]
             message = encode_bencode(result)
 
-            dispatch_status('set', 'relay', 'to', target)
             self.transmit(message, target)
+            dispatch_status('set', 'relay', 'to', target)
 
-    def execute(self, message, target):
-        payload = decode_bencode(message)
+        return message
+
+    def execute(self, request, target):
+        payload = decode_bencode(request)
 
         if payload[2] in self.queue.data:  # check if message in buffer
             dispatch_status(payload[1], 're-request', 'from', target)

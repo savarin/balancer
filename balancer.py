@@ -88,6 +88,15 @@ class Balancer(object):
     def listen(self):
         while True:
             command = raw_input('> ').split()
+
+            if command[0] == 'get' and len(command) != 2:
+                sys.stderr.write('get requests requires only a key!\n')
+                continue
+
+            if command[0] == 'set' and len(command) != 3:
+                sys.stderr.write('set requests requires only a key and a value!\n')
+                continue
+
             self.execute(command)
 
 

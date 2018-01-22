@@ -45,7 +45,7 @@ def bind_socket(ip_address, port):
 
 
 def dispatch_status(task, method, direction, location):
-    sys.stderr.write('{} INFO {} {} {} {} \n'\
+    sys.stderr.write('{} INFO {} {} {} {} \n'
         .format(dt.now(), task, method, direction, str(location)))
 
 
