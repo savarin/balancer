@@ -9,8 +9,8 @@ from helpers import parse_arguments, bind_socket, dispatch_status, \
     encode_bencode, decode_bencode
 
 
-SOURCE_IP = os.getenv('BALANCER_IP_ADDRESS')
-TARGET_IP = os.getenv('NODE_IP_ADDRESS')
+BALANCER_IP = os.getenv('BALANCER_IP_ADDRESS')
+NODE_IP = os.getenv('NODE_IP_ADDRESS')
 
 
 class Balancer(object):
@@ -25,7 +25,7 @@ class Balancer(object):
             self.counter += 1
 
         if random.random() > drop_probability:
-            self.sock.sendto(message, (TARGET_IP, target))
+            self.sock.sendto(message, (NODE_IP, target))
 
     def broadcast(self, reset=False):
         task = 'reset' if reset else 'broadcast'
@@ -35,18 +35,19 @@ class Balancer(object):
         for target in self.targets:
             self.send(message, target, drop_probability=0)
 
+    def choose(self):
+        return self.targets[self.counter % len(self.targets)]
+
     def execute(self, command):
         if command[0] == 'broadcast':
             if os.getenv('BALANCER_DEBUG'):
                 sys.stderr.write(str(dt.now()) + ' INFO cluster broadcast\n')
             self.broadcast()
-            pass
 
         elif command[0] == 'reset':
             if os.getenv('BALANCER_DEBUG'):
                 sys.stderr.write(str(dt.now()) + ' WARN database reset\n')
             self.broadcast(reset=True)
-            pass
 
         elif command[0] in ['get', 'set']:
             key = command[1]
@@ -54,7 +55,7 @@ class Balancer(object):
             payload = ['request', command[0], self.counter, 'key', key, 'value', value]
             message = encode_bencode(payload)
 
-            target = self.targets[self.counter % len(self.targets)]
+            target = self.choose()
             if os.getenv('BALANCER_DEBUG'):
                 dispatch_status(payload[1], payload[0], 'to', target)
 
@@ -63,7 +64,7 @@ class Balancer(object):
                 if os.getenv('BALANCER_DEBUG'):
                     sys.stderr.write(str(dt.now()) + ' INFO attempt ' + str(attempt + 1) + ' of 3\n')
 
-                increment = True if attempt == 0 else False
+                increment = True if attempt == 0 else False  # only increment if 1st attempt
                 self.send(message, target, increment=increment)
 
                 try:
@@ -92,7 +93,7 @@ class Balancer(object):
 
 if __name__ == '__main__':
     source, targets = parse_arguments()
-    sock = bind_socket(SOURCE_IP, source)
+    sock = bind_socket(BALANCER_IP, source)
 
     balancer = Balancer(sock, source, targets)
     balancer.listen()
