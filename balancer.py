@@ -20,10 +20,12 @@ class Balancer(object):
         self.targets = targets
         self.counter = 0
 
-    def send(self, message, target, drop_probability=0.2):
+    def send(self, message, target, drop_probability=0.2, increment=True):
+        if increment:
+            self.counter += 1
+
         if random.random() > drop_probability:
             self.sock.sendto(message, (TARGET_IP, target))
-            self.counter += 1
 
     def broadcast(self, reset=False):
         task = 'reset' if reset else 'broadcast'
@@ -54,13 +56,15 @@ class Balancer(object):
 
             target = self.targets[self.counter % len(self.targets)]
             if os.getenv('BALANCER_DEBUG'):
-                dispatch_status(command[0], 'request', 'to', target)
+                dispatch_status(payload[1], payload[0], 'to', target)
 
             attempt = 0
             while attempt < 3:
                 if os.getenv('BALANCER_DEBUG'):
                     sys.stderr.write(str(dt.now()) + ' INFO attempt ' + str(attempt + 1) + ' of 3\n')
-                self.send(message, target)
+
+                increment = True if attempt == 0 else False
+                self.send(message, target, increment=increment)
 
                 try:
                     self.sock.settimeout(1)

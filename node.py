@@ -5,7 +5,7 @@ import socket
 import sys
 from datetime import datetime as dt
 
-from helpers import parse_arguments, bind_socket, dispatch_status, \
+from helpers import Queue, parse_arguments, bind_socket, dispatch_status, \
     encode_bencode, decode_bencode
 
 
@@ -18,13 +18,18 @@ class Node(object):
         self.source = source
         self.peers = peers
         self.data = {}
+        self.queue = Queue(10)
         self.counter = 0
         self.record = 0
 
-    def send(self, message, target, ip_address, drop_probability=0.2):
+    def send(self, message, target, ip_address, drop_probability=0.2, identifier=None):
+        self.counter += 1
+
+        if identifier is not None:
+            self.queue.put(int(identifier), message)
+
         if random.random() > drop_probability:
             self.sock.sendto(message, (ip_address, target))
-            self.counter += 1
 
     def get(self, key):
         return self.data.get(key, '')
@@ -54,11 +59,20 @@ class Node(object):
 
     def execute(self, message, target, ip_address):
         payload = decode_bencode(message)
+        method = payload[0]
+        identifier = payload[2]
+
+        if payload[2] in self.queue.data:  # check if message in buffer
+            dispatch_status(payload[1], 're-request', 'from', target)
+            dispatch_status(payload[1], 're-response', 'to', target)
+            message = self.queue.data[payload[2]]
+            self.send(message, target, ip_address)
+            return None  
 
         if payload[1] == 'broadcast':
             if not self.data:
                 sys.stderr.write(str(dt.now()) + ' WARN database empty\n')
-                pass
+                return None
 
             sys.stderr.write(str(dt.now()) + ' INFO database content\n')
             for key, value in self.data.iteritems():
@@ -80,9 +94,13 @@ class Node(object):
                 self.set(key, value)
 
             payload = ['response', payload[1], self.counter, 'key', key, 'value', value]
-            message = encode_bencode(payload)
             dispatch_status(payload[1], payload[0], 'to', target)
-            self.send(message, target, ip_address)
+            message = encode_bencode(payload)
+
+            if method == 'relay':
+                self.send(message, target, ip_address, drop_probability=0)
+                return None
+            self.send(message, target, ip_address, identifier=identifier)
 
     def listen(self):
         while True:
