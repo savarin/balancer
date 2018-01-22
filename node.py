@@ -58,46 +58,18 @@ class Node(object):
         if random.random() > drop_probability:
             self.sock.sendto(message, (BALANCER_IP, target))
 
-    def get(self, payload, target):
-        if payload[0] == 'request':
-            value = self.data.get(payload[4], '')
-
-            if not value:
-                value = self.relay(payload[4], payload[1]) or ''  # returns empty string if result is None
-
-            result = [payload[0], 'get', self.counter, 'key', payload[4], 'value', value]
-            message = encode_bencode(result)
-
-            dispatch_status('get', 'response', 'to', target)
-            self.deliver(message, target, identifier=payload[2])
-
-        elif payload[0] == 'relay':
-            value = self.data.get(payload[4], '')
-
-            result = [payload[0], 'get', self.counter, 'key', payload[4], 'value', value]
-            message = encode_bencode(result)
-
-            dispatch_status('get', 'relay', 'to', target)
-            self.transmit(message, target)
-
-    def set(self, payload, target):
-        self.data[payload[4]] = payload[6]
-
-        result = ['response', 'set', self.counter, 'key', payload[4], 'value', payload[6]]
-        message = encode_bencode(result)
-
-        dispatch_status('set', 'response', 'to', target)
-        self.deliver(message, target, identifier=payload[2])
-
     def transmit(self, message, peer):
         '''
-        Send message to other nodes
+        Sends message to other nodes
         '''
         self.record += 1
         self.sock.sendto(message, (NODE_IP, peer))
 
-    def relay(self, key, task):
-        payload = ['relay', task, str(self.record), 'key', key, 'value', '']
+    def relay(self, task, key, value=''):
+        '''
+        Sends message to all nodes to find specific key
+        '''
+        payload = ['relay', task, str(self.record), 'key', key, 'value', value]
         message = encode_bencode(payload)
 
         for peer in self.peers:
@@ -114,6 +86,54 @@ class Node(object):
 
             except socket.timeout:
                 sys.stderr.write(str(dt.now()) + ' WARN timeout\n')
+
+    def get(self, payload, target):
+        if payload[0] == 'request':
+            value = self.data.get(payload[4], '')
+
+            if not value:
+                value = self.relay(payload[1], payload[4]) or ''  # returns empty string if result is None
+
+            result = ['response', 'get', self.counter, 'key', payload[4], 'value', value]
+            message = encode_bencode(result)
+
+            dispatch_status('get', 'response', 'to', target)
+            self.deliver(message, target, identifier=payload[2])
+
+        elif payload[0] == 'relay':
+            value = self.data.get(payload[4], '')
+
+            result = ['relay', 'get', self.counter, 'key', payload[4], 'value', value]
+            message = encode_bencode(result)
+
+            dispatch_status('get', 'relay', 'to', target)
+            self.transmit(message, target)
+
+    def set(self, payload, target):
+        if payload[0] == 'request':
+            value = self.relay(payload[1], payload[4], payload[6]) or ''
+
+            if not value:
+                self.data[payload[4]] = payload[6]
+
+            result = ['response', 'set', self.record, 'key', payload[4], 'value', payload[6]]
+            message = encode_bencode(result)
+
+            dispatch_status('set', 'response', 'to', target)
+            self.deliver(message, target, identifier=payload[2])
+
+        elif payload[0] == 'relay':
+            value = ''
+
+            if payload[4] in self.data:
+                self.data[payload[4]] = payload[6]
+                value = payload[6]
+
+            result = ['relay', 'set', self.record, 'key', payload[4], 'value', value]
+            message = encode_bencode(result)
+
+            dispatch_status('set', 'relay', 'to', target)
+            self.transmit(message, target)
 
     def execute(self, message, target):
         payload = decode_bencode(message)
