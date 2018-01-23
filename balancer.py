@@ -3,7 +3,6 @@ import os
 import random
 import socket
 import sys
-import threading
 from datetime import datetime as dt
 
 from helpers import parse_arguments, bind_socket, dispatch_status, \
@@ -77,6 +76,7 @@ class Balancer(object):
                     result = decode_bencode(response)
                     output = result[6] + '\n' if command[0] == 'get' else 'success!\n'
                     sys.stderr.write(output)
+                    self.status[target] = result[2]
                     break
 
                 except socket.timeout:
@@ -87,7 +87,7 @@ class Balancer(object):
                 if attempt == 3:
                     sys.stderr.write('failed!\n')
 
-    def read(self):
+    def listen(self):
         while True:
             command = raw_input('> ').split()
 
@@ -101,28 +101,12 @@ class Balancer(object):
 
             if command[0] == 'status':
                 sys.stderr.write(str(self.status) + '\n')
+                continue
 
             if command[0] == 'exit':
                 sys.exit(0)
 
             self.execute(command)
-
-    def update(self, response, address):
-        result = decode_bencode(response)
-        self.status[address[1]] = result[4]
-
-    def listen(self):
-        thread = threading.Thread(target=self.read)
-        thread.start()
-
-        while True:
-            try:
-                self.sock.settimeout(3)
-                response, address = self.sock.recvfrom(1024)
-                self.update(response, address)
-
-            except socket.timeout:
-                pass
 
 
 if __name__ == '__main__':

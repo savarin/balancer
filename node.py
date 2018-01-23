@@ -20,9 +20,7 @@ class Node(object):
         self.timeout = timeout
         self.data = {}
         self.queue = Queue()
-        self.counter = 0
         self.record = 0
-        self.address = None
 
     def replay(self, payload, address):
         '''
@@ -81,8 +79,6 @@ class Node(object):
         '''
         Sends message to balancer.
         '''
-        self.counter += 1
-
         if identifier is not None:
             self.queue.put(identifier, (message, dt.now()))
 
@@ -98,7 +94,7 @@ class Node(object):
             if not value:
                 value = self.relay(payload[1], payload[4]) or ''  # returns empty string if result is None
 
-            result = ['response', 'get', self.counter, 'key', payload[4], 'value', value]
+            result = ['response', 'get', self.queue.status(), 'key', payload[4], 'value', value]
             message = encode_bencode(result)
 
             self.deliver(message, address, identifier=payload[2])
@@ -107,7 +103,7 @@ class Node(object):
         elif payload[0] == 'relay':
             value = self.data.get(payload[4], '')
 
-            result = ['relay', 'get', self.counter, 'key', payload[4], 'value', value]
+            result = ['relay', 'get', self.record, 'key', payload[4], 'value', value]
             message = encode_bencode(result)
 
             self.transmit(message, address)
@@ -124,7 +120,7 @@ class Node(object):
             if not value:
                 self.data[payload[4]] = payload[6]
 
-            result = ['response', 'set', self.counter, 'key', payload[4], 'value', payload[6]]
+            result = ['response', 'set', self.queue.status(), 'key', payload[4], 'value', payload[6]]
             message = encode_bencode(result)
 
             self.deliver(message, address, identifier=payload[2])
@@ -144,9 +140,6 @@ class Node(object):
             dispatch_status('set', 'relay', 'to', address[1])
 
         return message
-
-    def connect(self, address):
-        self.address = address
 
     def execute(self, request, address):
         payload = decode_bencode(request)
@@ -172,24 +165,15 @@ class Node(object):
             dispatch_status('set', payload[0], 'from', address[1])
             self.set(payload, address)
 
-    def status(self):
-        result = ['response', 'status', -1, 'counter', self.queue.status(interval=30)]
-        message = encode_bencode(result)
-
-        self.sock.sendto(message, self.address)
-
     def listen(self):
         while True:
             try:
                 self.sock.settimeout(3)
                 request, address = self.sock.recvfrom(1024)
-                self.connect(address)
                 self.execute(request, address)
 
             except socket.timeout:
                 sys.stderr.write('.\n')
-                if self.address:
-                    self.status()
 
 
 if __name__ == '__main__':
