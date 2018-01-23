@@ -3,6 +3,7 @@ import os
 import random
 import socket
 import sys
+import threading
 from datetime import datetime as dt
 
 from helpers import parse_arguments, bind_socket, dispatch_status, \
@@ -19,6 +20,7 @@ class Balancer(object):
         self.source = source
         self.targets = targets
         self.counter = 0
+        self.status = {}
 
     def send(self, message, target, drop_probability=0.2, increment=True):
         if increment:
@@ -85,7 +87,7 @@ class Balancer(object):
                 if attempt == 3:
                     sys.stderr.write('failed!\n')
 
-    def listen(self):
+    def read(self):
         while True:
             command = raw_input('> ').split()
 
@@ -97,10 +99,30 @@ class Balancer(object):
                 sys.stderr.write('set requests requires only a key and a value!\n')
                 continue
 
+            if command[0] == 'status':
+                sys.stderr.write(str(self.status) + '\n')
+
             if command[0] == 'exit':
                 sys.exit(0)
 
             self.execute(command)
+
+    def update(self, response, address):
+        result = decode_bencode(response)
+        self.status[address[1]] = result[4]
+
+    def listen(self):
+        thread = threading.Thread(target=self.read)
+        thread.start()
+
+        while True:
+            try:
+                self.sock.settimeout(3)
+                response, address = self.sock.recvfrom(1024)
+                self.update(response, address)
+
+            except socket.timeout:
+                pass
 
 
 if __name__ == '__main__':

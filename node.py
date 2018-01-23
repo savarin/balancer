@@ -24,9 +24,6 @@ class Node(object):
         self.record = 0
         self.address = None
 
-    def connect(self, address):
-        self.address = address
-
     def replay(self, payload, address):
         '''
         Re-sends message in buffer to balancer.
@@ -50,18 +47,6 @@ class Node(object):
         self.data = {}
         self.queue = Queue()
         sys.stderr.write(str(dt.now()) + ' WARN database reset\n')
-
-    def deliver(self, message, address, drop_probability=0.2, identifier=None):
-        '''
-        Sends message to balancer.
-        '''
-        self.counter += 1
-
-        if identifier is not None:
-            self.queue.put(identifier, (message, dt.now()))
-
-        if random.random() > drop_probability:
-            self.sock.sendto(message, address)
 
     def transmit(self, message, address):
         '''
@@ -91,6 +76,18 @@ class Node(object):
 
             except socket.timeout:
                 sys.stderr.write(str(dt.now()) + ' WARN timeout\n')
+
+    def deliver(self, message, address, identifier=None, drop_probability=0.2):
+        '''
+        Sends message to balancer.
+        '''
+        self.counter += 1
+
+        if identifier is not None:
+            self.queue.put(identifier, (message, dt.now()))
+
+        if random.random() > drop_probability:
+            self.sock.sendto(message, address)
 
     def get(self, payload, address):
         message = ''
@@ -148,6 +145,9 @@ class Node(object):
 
         return message
 
+    def connect(self, address):
+        self.address = address
+
     def execute(self, request, address):
         payload = decode_bencode(request)
 
@@ -173,10 +173,10 @@ class Node(object):
             self.set(payload, address)
 
     def status(self):
-        result = ['response', 'status', -1, 'counter', self.queue.status()]
+        result = ['response', 'status', -1, 'counter', self.queue.status(interval=30)]
         message = encode_bencode(result)
 
-        self.deliver(message, self.address)
+        self.sock.sendto(message, self.address)
 
     def listen(self):
         while True:
