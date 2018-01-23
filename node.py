@@ -20,7 +20,7 @@ class Node(object):
         self.peers = peers
         self.timeout = timeout
         self.data = {}
-        self.queue = Queue(10)
+        self.queue = Queue()
         self.counter = 0
         self.record = 0
 
@@ -28,7 +28,7 @@ class Node(object):
         '''
         Re-sends message in buffer to balancer.
         '''
-        message = self.queue.data[payload[2]]
+        message = self.queue.get(payload[2])[0]
         self.sock.sendto(message, (BALANCER_IP, target))
         dispatch_status(payload[1], 're-response', 'to', target)
 
@@ -45,7 +45,7 @@ class Node(object):
 
     def reset(self):
         self.data = {}
-        self.queue = Queue(10)
+        self.queue = Queue()
         sys.stderr.write(str(dt.now()) + ' WARN database reset\n')
 
     def deliver(self, message, target, drop_probability=0.2, identifier=None):
@@ -55,7 +55,7 @@ class Node(object):
         self.counter += 1
 
         if identifier is not None:
-            self.queue.put(identifier, message)
+            self.queue.put(identifier, (message, dt.now()))
 
         if random.random() > drop_probability:
             self.sock.sendto(message, (BALANCER_IP, target))
@@ -90,6 +90,8 @@ class Node(object):
                 sys.stderr.write(str(dt.now()) + ' WARN timeout\n')
 
     def get(self, payload, target):
+        message = ''
+
         if payload[0] == 'request':
             value = self.data.get(payload[4], '')
 
@@ -114,6 +116,8 @@ class Node(object):
         return message
 
     def set(self, payload, target):
+        message = ''
+
         if payload[0] == 'request':
             value = self.relay(payload[1], payload[4], payload[6]) or ''
 
@@ -144,7 +148,7 @@ class Node(object):
     def execute(self, request, target):
         payload = decode_bencode(request)
 
-        if payload[2] in self.queue.data:  # check if message in buffer
+        if self.queue.get(payload[2]):  # check if message in buffer
             dispatch_status(payload[1], 're-request', 'from', target)
             self.replay(payload, target)
             return None

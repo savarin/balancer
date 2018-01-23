@@ -2,12 +2,12 @@ import itertools
 import re
 import socket
 import sys
-from datetime import datetime as dt
+from datetime import datetime as dt, timedelta
 from Queue import Queue as queue
 
 
 class Queue(object):
-    def __init__(self, maxsize=10):
+    def __init__(self, maxsize=100):
         self.maxsize = maxsize
         self.queue = queue(maxsize)
         self.data = {}
@@ -19,6 +19,18 @@ class Queue(object):
 
         self.queue.put(key)
         self.data[key] = value
+
+    def get(self, key):
+        return self.data.get(key, '')
+
+    def status(self, interval=30):
+        counter = 0
+
+        for message, timestamp in self.data.values():
+            if timestamp > dt.now() - timedelta(seconds=interval):
+                counter += 1
+
+        return counter
 
 
 def exit_with_stderr(comments):
