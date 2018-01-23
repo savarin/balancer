@@ -21,34 +21,60 @@ class Balancer(object):
         self.counter = 0
         self.status = {}
 
-    def send(self, message, target, drop_probability=0.2, increment=True):
+    def send(self, message, address, drop_probability=0.2, increment=True):
         if increment:
             self.counter += 1
 
         if random.random() > drop_probability:
-            self.sock.sendto(message, (NODE_IP, target))
+            self.sock.sendto(message, address)
 
-    def broadcast(self, reset=False):
-        task = 'reset' if reset else 'broadcast'
-        payload = ['request', task, str(self.counter)]
+    def broadcast(self):
+        payload = ['request', 'status', str(self.counter)]
         message = encode_bencode(payload)
 
         for target in self.targets:
-            self.send(message, target, drop_probability=0)
+            address = (NODE_IP, target)
+            self.send(message, address, drop_probability=0)
+
+            try:
+                self.sock.settimeout(1)
+                response, address = self.sock.recvfrom(1024)
+                result = decode_bencode(response)
+                self.status[target] = result[2]
+
+            except socket.timeout:
+                pass
+
+        if not self.status:
+            return None
+
+        for key, value in self.status.iteritems():
+            sys.stderr.write(str(key) + ': ' + str(value) + '\n')
+
+    def reset(self):
+        payload = ['request', 'reset', str(self.counter)]
+        message = encode_bencode(payload)
+
+        for target in self.targets:
+            address = (NODE_IP, target)
+            self.send(message, address, drop_probability=0)
+
+        self.counter = 0
+        self.status = {}
 
     def choose(self):
         return self.targets[self.counter % len(self.targets)]
 
     def execute(self, command):
-        if command[0] == 'broadcast':
+        if command[0] == 'status':
             if os.getenv('BALANCER_DEBUG'):
-                sys.stderr.write(str(dt.now()) + ' INFO cluster broadcast\n')
+                sys.stderr.write(str(dt.now()) + ' INFO status broadcast\n')
             self.broadcast()
 
         elif command[0] == 'reset':
             if os.getenv('BALANCER_DEBUG'):
                 sys.stderr.write(str(dt.now()) + ' WARN database reset\n')
-            self.broadcast(reset=True)
+            self.reset()
 
         elif command[0] in ['get', 'set']:
             key = command[1]
@@ -66,7 +92,8 @@ class Balancer(object):
                     sys.stderr.write(str(dt.now()) + ' INFO attempt ' + str(attempt + 1) + ' of 3\n')
 
                 increment = True if attempt == 0 else False  # only increment if 1st attempt
-                self.send(message, target, increment=increment)
+                address = (NODE_IP, target)
+                self.send(message, address, increment=increment)
 
                 try:
                     self.sock.settimeout(1)
@@ -97,10 +124,6 @@ class Balancer(object):
 
             if command[0] == 'set' and len(command) != 3:
                 sys.stderr.write('set requests requires only a key and a value!\n')
-                continue
-
-            if command[0] == 'status':
-                sys.stderr.write(str(self.status) + '\n')
                 continue
 
             if command[0] == 'exit':

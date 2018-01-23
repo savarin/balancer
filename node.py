@@ -30,7 +30,7 @@ class Node(object):
         self.sock.sendto(message, address)
         dispatch_status(payload[1], 're-response', 'to', address[1])
 
-    def broadcast(self):
+    def status(self, address):
         if not self.data:
             sys.stderr.write(str(dt.now()) + ' WARN database empty\n')
             return None
@@ -40,6 +40,12 @@ class Node(object):
             sys.stderr.write(key + ': ' + value + '\n')
 
         sys.stderr.write(str(dt.now()) + ' INFO database contents end\n')
+
+        result = ['response', 'status', self.queue.status()]
+        message = encode_bencode(result)
+
+        self.sock.sendto(message, address)
+        dispatch_status('status', 'response', 'to', address[1])
 
     def reset(self):
         self.data = {}
@@ -149,9 +155,9 @@ class Node(object):
             self.replay(payload, address)
             return None
 
-        if payload[1] == 'broadcast':
-            dispatch_status('broadcast', 'request', 'from', address[1])
-            self.broadcast()
+        if payload[1] == 'status':
+            dispatch_status('status', 'request', 'from', address[1])
+            self.status(address)
 
         elif payload[1] == 'reset':
             dispatch_status('reset', 'request', 'from', address[1])
