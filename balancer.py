@@ -97,6 +97,9 @@ class Balancer(object):
                 sys.stderr.write('set requests requires only a key and a value!\n')
                 continue
 
+            if command[0] == 'exit':
+                sys.exit(0)
+
             self.execute(command)
 
 

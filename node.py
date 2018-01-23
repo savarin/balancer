@@ -10,7 +10,6 @@ from helpers import Queue, parse_arguments, bind_socket, dispatch_status, \
 
 
 NODE_IP = os.getenv('NODE_IP_ADDRESS')
-BALANCER_IP = os.getenv('BALANCER_IP_ADDRESS')
 
 
 class Node(object):
@@ -23,14 +22,18 @@ class Node(object):
         self.queue = Queue()
         self.counter = 0
         self.record = 0
+        self.address = None
 
-    def replay(self, payload, target):
+    def connect(self, address):
+        self.address = address
+
+    def replay(self, payload, address):
         '''
         Re-sends message in buffer to balancer.
         '''
         message = self.queue.get(payload[2])[0]
-        self.sock.sendto(message, (BALANCER_IP, target))
-        dispatch_status(payload[1], 're-response', 'to', target)
+        self.sock.sendto(message, address)
+        dispatch_status(payload[1], 're-response', 'to', address[1])
 
     def broadcast(self):
         if not self.data:
@@ -48,7 +51,7 @@ class Node(object):
         self.queue = Queue()
         sys.stderr.write(str(dt.now()) + ' WARN database reset\n')
 
-    def deliver(self, message, target, drop_probability=0.2, identifier=None):
+    def deliver(self, message, address, drop_probability=0.2, identifier=None):
         '''
         Sends message to balancer.
         '''
@@ -58,14 +61,14 @@ class Node(object):
             self.queue.put(identifier, (message, dt.now()))
 
         if random.random() > drop_probability:
-            self.sock.sendto(message, (BALANCER_IP, target))
+            self.sock.sendto(message, address)
 
-    def transmit(self, message, peer):
+    def transmit(self, message, address):
         '''
         Sends message to other nodes
         '''
         self.record += 1
-        self.sock.sendto(message, (NODE_IP, peer))
+        self.sock.sendto(message, address)
 
     def relay(self, task, key, value=''):
         '''
@@ -75,7 +78,7 @@ class Node(object):
         message = encode_bencode(payload)
 
         for peer in self.peers:
-            self.transmit(message, peer)
+            self.transmit(message, (NODE_IP, peer))
             dispatch_status(payload[1], payload[0], 'to', peer)
 
             try:
@@ -89,7 +92,7 @@ class Node(object):
             except socket.timeout:
                 sys.stderr.write(str(dt.now()) + ' WARN timeout\n')
 
-    def get(self, payload, target):
+    def get(self, payload, address):
         message = ''
 
         if payload[0] == 'request':
@@ -101,8 +104,8 @@ class Node(object):
             result = ['response', 'get', self.counter, 'key', payload[4], 'value', value]
             message = encode_bencode(result)
 
-            self.deliver(message, target, identifier=payload[2])
-            dispatch_status('get', 'response', 'to', target)
+            self.deliver(message, address, identifier=payload[2])
+            dispatch_status('get', 'response', 'to', address[1])
 
         elif payload[0] == 'relay':
             value = self.data.get(payload[4], '')
@@ -110,12 +113,12 @@ class Node(object):
             result = ['relay', 'get', self.counter, 'key', payload[4], 'value', value]
             message = encode_bencode(result)
 
-            self.transmit(message, target)
-            dispatch_status('get', 'relay', 'to', target)
+            self.transmit(message, address)
+            dispatch_status('get', 'relay', 'to', address[1])
 
         return message
 
-    def set(self, payload, target):
+    def set(self, payload, address):
         message = ''
 
         if payload[0] == 'request':
@@ -127,8 +130,8 @@ class Node(object):
             result = ['response', 'set', self.counter, 'key', payload[4], 'value', payload[6]]
             message = encode_bencode(result)
 
-            self.deliver(message, target, identifier=payload[2])
-            dispatch_status('set', 'response', 'to', target)
+            self.deliver(message, address, identifier=payload[2])
+            dispatch_status('set', 'response', 'to', address[1])
 
         elif payload[0] == 'relay':
             value = ''
@@ -140,43 +143,53 @@ class Node(object):
             result = ['relay', 'set', self.record, 'key', payload[4], 'value', value]
             message = encode_bencode(result)
 
-            self.transmit(message, target)
-            dispatch_status('set', 'relay', 'to', target)
+            self.transmit(message, address)
+            dispatch_status('set', 'relay', 'to', address[1])
 
         return message
 
-    def execute(self, request, target):
+    def execute(self, request, address):
         payload = decode_bencode(request)
 
         if self.queue.get(payload[2]):  # check if message in buffer
-            dispatch_status(payload[1], 're-request', 'from', target)
-            self.replay(payload, target)
+            dispatch_status(payload[1], 're-request', 'from', address[1])
+            self.replay(payload, address)
             return None
 
         if payload[1] == 'broadcast':
-            dispatch_status('broadcast', 'request', 'from', target)
+            dispatch_status('broadcast', 'request', 'from', address[1])
             self.broadcast()
 
         elif payload[1] == 'reset':
-            dispatch_status('reset', 'request', 'from', target)
+            dispatch_status('reset', 'request', 'from', address[1])
             self.reset()
 
         elif payload[1] == 'get':
-            dispatch_status('get', payload[0], 'from', target)
-            self.get(payload, target)
+            dispatch_status('get', payload[0], 'from', address[1])
+            self.get(payload, address)
 
         elif payload[1] == 'set':
-            dispatch_status('set', payload[0], 'from', target)
-            self.set(payload, target)
+            dispatch_status('set', payload[0], 'from', address[1])
+            self.set(payload, address)
+
+    def status(self):
+        result = ['response', 'status', -1, 'counter', self.queue.status()]
+        message = encode_bencode(result)
+
+        self.deliver(message, self.address)
 
     def listen(self):
         while True:
             try:
                 self.sock.settimeout(3)
                 request, address = self.sock.recvfrom(1024)
-                self.execute(request, address[1])
+                self.connect(address)
+                self.execute(request, address)
+
             except socket.timeout:
                 sys.stderr.write('.\n')
+                if self.address:
+                    self.status()
 
 
 if __name__ == '__main__':
