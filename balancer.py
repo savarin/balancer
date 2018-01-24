@@ -1,4 +1,5 @@
 import datetime
+import numpy
 import os
 import random
 import socket
@@ -19,7 +20,7 @@ class Balancer(object):
         self.source = source
         self.targets = targets
         self.counter = 0
-        self.status = {}
+        self.status = {target: 0 for target in self.targets}
 
     def send(self, message, address, drop_probability=0.2, increment=True):
         if increment:
@@ -60,10 +61,28 @@ class Balancer(object):
             self.send(message, address, drop_probability=0)
 
         self.counter = 0
-        self.status = {}
+        self.status = {target: 0 for target in self.targets}
 
-    def choose(self):
-        return self.targets[self.counter % len(self.targets)]
+    def choose(self, simple=False):
+        if simple or not self.status:
+            return self.targets[self.counter % len(self.targets)]
+
+        size = len(self.status.values())
+        total = numpy.sum([numpy.exp(_) for _ in self.status.values()])
+
+        def scale(x, size, total):
+            return (total - numpy.exp(x)) / ((size - 1) * total)
+
+        probabilities = {k: scale(v, size, total) for k, v in self.status.iteritems()}
+
+        threshold = random.random()
+        cumulative = 0
+
+        for target, probability in probabilities.iteritems():
+            cumulative += probability
+
+            if threshold < cumulative:
+                return target
 
     def execute(self, command):
         if command[0] == 'status':
@@ -83,6 +102,7 @@ class Balancer(object):
             message = encode_bencode(payload)
 
             target = self.choose()
+
             if os.getenv('BALANCER_DEBUG'):
                 dispatch_status(payload[1], payload[0], 'to', target)
 
@@ -102,8 +122,13 @@ class Balancer(object):
                         dispatch_status(command[0], 'response', 'from', target)
                     result = decode_bencode(response)
                     output = result[6] + '\n' if command[0] == 'get' else 'success!\n'
-                    sys.stderr.write(output)
                     self.status[target] = result[2]
+
+                    if os.getenv('EXAMPLE'):
+                        activity = [self.status[target] for target in self.targets]
+                        sys.stderr.write(str(activity)[1:-1] + '\n')
+                        break
+                    sys.stderr.write(output)
                     break
 
                 except socket.timeout:
@@ -111,7 +136,7 @@ class Balancer(object):
                         sys.stderr.write(str(dt.now()) + ' WARN timeout\n')
 
                 attempt += 1
-                if attempt == 3:
+                if attempt == 3 and not os.getenv('EXAMPLE'):
                     sys.stderr.write('failed!\n')
 
     def listen(self):
@@ -130,6 +155,10 @@ class Balancer(object):
                 sys.exit(0)
 
             self.execute(command)
+
+    def read(self, instruction):
+        command = instruction.split()
+        self.execute(command)
 
 
 if __name__ == '__main__':
