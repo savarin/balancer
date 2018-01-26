@@ -3,7 +3,8 @@ import random
 import sys
 import unittest
 
-from helpers import Queue, bind_socket, decode_bencode
+from helpers.queue import Queue
+from helpers.bencode import encode_bencode, decode_bencode
 from node import Node
 
 

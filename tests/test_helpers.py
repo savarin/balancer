@@ -1,6 +1,7 @@
 import unittest
 
-from helpers import Queue, encode_bencode, decode_bencode
+from helpers.queue import Queue
+from helpers.bencode import encode_bencode, decode_bencode
 
 
 class TestCase(unittest.TestCase):

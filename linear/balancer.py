@@ -7,8 +7,8 @@ import sys
 from datetime import datetime as dt
 
 sys.path.insert(0, "..")
-from helpers import parse_arguments, bind_socket, dispatch_status, \
-    encode_bencode, decode_bencode
+from helpers.connect import parse_arguments, bind_socket, dispatch_status
+from helpers.bencode import encode_bencode, decode_bencode
 
 
 BALANCER_IP = os.getenv('BALANCER_IP_ADDRESS')

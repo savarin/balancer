@@ -4,7 +4,8 @@ import sys
 import thread
 
 sys.path.insert(0, "..")
-from helpers import parse_arguments, bind_socket, decode_bencode
+from helpers.bencode import decode_bencode
+from helpers.connect import parse_arguments, bind_socket
 
 
 NODE_IP = os.getenv('NODE_IP_ADDRESS')
