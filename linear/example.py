@@ -1,3 +1,6 @@
+import sys
+
+sys.path.insert(0, "..")
 from balancer import Balancer, BALANCER_IP
 from helpers import parse_arguments, bind_socket
 

@@ -6,6 +6,7 @@ import socket
 import sys
 from datetime import datetime as dt
 
+sys.path.insert(0, "..")
 from helpers import parse_arguments, bind_socket, dispatch_status, \
     encode_bencode, decode_bencode
 
