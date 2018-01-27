@@ -1,11 +1,11 @@
 from datetime import datetime as dt, timedelta
-from Queue import Queue as queue
+from Queue import Queue
 
 
-class Queue(object):
+class HashQueue(object):
     def __init__(self, maxsize=100):
         self.maxsize = maxsize
-        self.queue = queue(maxsize)
+        self.queue = Queue(maxsize)
         self.data = {}
 
     def put(self, key, value):

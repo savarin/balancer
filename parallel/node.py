@@ -25,6 +25,10 @@ class Node(object):
         self.end = False
 
     def status(self):
+        if not self.data:
+            sys.stderr.write(str(dt.now()) + ' WARN database empty\n')
+            return None
+
         sys.stderr.write(str(dt.now()) + ' INFO contents start\n')
         for key, value in self.data.iteritems():
             sys.stderr.write(key + ': ' + value + '\n')
@@ -76,8 +80,8 @@ class Node(object):
             except socket.timeout:
                 sys.stderr.write('.\n')
 
-                if self.end:
-                    thread.exit()
+            if self.end:
+                thread.exit()
 
     def execute(self):
         while True:

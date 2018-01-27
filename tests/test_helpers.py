@@ -1,24 +1,24 @@
 import unittest
 
-from helpers.queue import Queue
 from helpers.bencode import encode_bencode, decode_bencode
+from helpers.queue import HashQueue
 
 
 class TestCase(unittest.TestCase):
 
     def test_queue(self):
-        queue = Queue(1)
-        assert queue.queue.empty() is True
-        assert queue.data == {}
+        hashqueue = HashQueue(1)
+        assert hashqueue.queue.empty() is True
+        assert hashqueue.data == {}
 
-        queue.put('a', 1)
-        assert queue.queue.empty() is False
-        assert 'a' in queue.data
+        hashqueue.put('a', 1)
+        assert hashqueue.queue.empty() is False
+        assert 'a' in hashqueue.data
 
-        queue.put('b', 1)
-        assert queue.queue.empty() is False
-        assert 'b' in queue.data
-        assert 'a' not in queue.data
+        hashqueue.put('b', 1)
+        assert hashqueue.queue.empty() is False
+        assert 'b' in hashqueue.data
+        assert 'a' not in hashqueue.data
 
     def test_encode_bencode(self):
         assert encode_bencode(None) == ""

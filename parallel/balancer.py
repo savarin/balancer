@@ -19,7 +19,8 @@ class Balancer(object):
         self.sock = sock
         self.source = source
         self.targets = targets
-        self.data = {}
+        self.ingress = Queue(maxsize=100)
+        self.output = Queue(maxsize=100)
         self.counter = 0
         self.end = False
 
@@ -81,12 +82,16 @@ class Balancer(object):
 
         return message
 
+    def flush(self):
+        while not self.output.empty():
+            text = self.output.get()
+            sys.stderr.write(text + '\n')
+
     def execute(self, command):
         if command[0] == 'status':
             if os.getenv('BALANCER_DEBUG'):
                 sys.stderr.write(str(dt.now()) + ' INFO system status\n')
             self.status()
-            sys.stderr.write(str(self.data) + '\n')
 
         elif command[0] == 'reset':
             if os.getenv('BALANCER_DEBUG'):
@@ -104,19 +109,36 @@ class Balancer(object):
         elif command[0] == 'set':
             self.set(command)
 
+        elif command[0] == 'flush':
+            self.flush()
+
+    def process(self):
+        while True:
+            if not self.ingress.empty():
+                response = self.ingress.get()
+                result = decode_bencode(response)
+
+                if result[1] == 'get' and result[6]:
+                    self.output.put(result[4] + ': ' + result[6])
+
+                elif result[1] == 'set':
+                    pass
+
+            if self.end:
+                thread.exit()
+
     def listen(self):
         while True:
             try:
                 sock.settimeout(3)
                 response, address = sock.recvfrom(1024)
-                result = decode_bencode(response)
-
-                if result[1] == 'get' and result[6]:
-                    self.data[result[4]] = result[6]
+                self.ingress.put(response)
 
             except socket.timeout:
-                if self.end:
-                    thread.exit()
+                pass
+
+            if self.end:
+                thread.exit()
 
     def read(self):
         while True:
@@ -137,5 +159,6 @@ if __name__ == '__main__':
 
     balancer = Balancer(sock, source, targets)
     thread.start_new_thread(balancer.listen, ())
+    thread.start_new_thread(balancer.process, ())
 
     balancer.read()

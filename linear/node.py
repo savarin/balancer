@@ -8,7 +8,7 @@ from datetime import datetime as dt
 sys.path.insert(0, "..")
 from helpers.bencode import encode_bencode, decode_bencode
 from helpers.connect import parse_arguments, bind_socket, dispatch_status
-from helpers.queue import Queue
+from helpers.hashqueue import HashQueue
 
 
 NODE_IP = os.getenv('NODE_IP_ADDRESS')
@@ -21,7 +21,7 @@ class Node(object):
         self.peers = peers
         self.timeout = timeout
         self.data = {}
-        self.queue = Queue()
+        self.queue = HashQueue()
         self.record = 0
 
     def replay(self, payload, address):
