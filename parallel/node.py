@@ -30,7 +30,7 @@ class Node(object):
         self.end = False
 
     def deliver(self, message, address, drop_probability=0.0, identifier=None):
-        # use is not None so check works for identifier = 0
+        # use 'is not None' so check works for identifier = 0
         if identifier is not None:
             self.egress.put(identifier, (message, dt.now()))
 

@@ -1,3 +1,5 @@
+
+import numpy
 import os
 import random
 import socket
@@ -22,7 +24,7 @@ class Balancer(object):
         self.sock = sock
         self.source = source
         self.targets = targets
-        self.activity = {}
+        self.activity = {target: 0 for target in self.targets}
         self.ingress = Queue(maxsize=100)
         self.collection = HashQueue(maxsize=100)
         self.output = Queue(maxsize=100)
@@ -30,7 +32,7 @@ class Balancer(object):
         self.end = False
 
     def deliver(self, message, address, drop_probability=0.0, identifier=None):
-        # use is not None so check works for identifier = 0
+        # use 'is not None' so check works for identifier = 0
         if identifier is not None:
             self.identifier += 1
 
@@ -70,8 +72,26 @@ class Balancer(object):
         self.end = True
         sys.exit(0)
 
-    def choose(self):
-        return self.targets[self.identifier % len(self.targets)]
+    def choose(self, simple=False):
+        if simple:
+            return self.targets[self.identifier % len(self.targets)]
+
+        size = len(self.activity)
+        total = numpy.sum([numpy.exp(pulse) for pulse in self.activity.values()])
+
+        def scale(x, size, total):
+            return (total - numpy.exp(x)) / ((size - 1) * total)
+
+        probabilities = {k: scale(v, size, total) for k, v in self.activity.iteritems()}
+
+        threshold = random.random()
+        cumulative = 0
+
+        for target, probability in probabilities.iteritems():
+            cumulative += probability
+
+            if threshold < cumulative:
+                return target
 
     def send(self, message, address, identifier):
         for i in xrange(3):
