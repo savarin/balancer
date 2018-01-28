@@ -22,13 +22,14 @@ class Balancer(object):
         self.sock = sock
         self.source = source
         self.targets = targets
+        self.activity = {}
         self.ingress = Queue(maxsize=100)
         self.collection = HashQueue(maxsize=100)
         self.output = Queue(maxsize=100)
         self.identifier = 0
         self.end = False
 
-    def deliver(self, message, address, drop_probability=0.2, identifier=None):
+    def deliver(self, message, address, drop_probability=0.0, identifier=None):
         # use is not None so check works for identifier = 0
         if identifier is not None:
             self.identifier += 1
@@ -46,10 +47,20 @@ class Balancer(object):
         message = encode_bencode(payload)
         self.broadcast(message)
 
+        time.sleep(0.1)
+        if not self.activity:
+            return None
+
+        for key, value in self.activity.iteritems():
+            sys.stderr.write(str(key) + ': ' + str(value) + '\n')
+
     def reset(self):
         payload = ['request', 'reset', str(self.identifier)]
         message = encode_bencode(payload)
         self.broadcast(message)
+
+        self.identifier = 0
+        self.activity = {target: 0 for target in self.targets}
 
     def exit(self):
         payload = ['request', 'exit', str(self.identifier)]
@@ -67,8 +78,8 @@ class Balancer(object):
             if os.getenv('BALANCER_DEBUG'):
                 sys.stderr.write(str(dt.now()) + ' INFO attempt ' + str(i + 1) + ' of 3\n')
 
-            self.deliver(message, address, identifier=not i)
-            time.sleep(1)
+            self.deliver(message, address, identifier=i if i == 0 else None)
+            time.sleep(0.1)
 
             if identifier in self.collection.data:
                 return 'success!'
@@ -139,15 +150,21 @@ class Balancer(object):
     def process(self):
         while True:
             if not self.ingress.empty():
-                response = self.ingress.get()
+                response, address = self.ingress.get()
                 result = decode_bencode(response)
-                self.collection.put(result[2], (result[4], result[6]))
 
-                if result[1] == 'get' and result[6]:
-                    self.output.put(result[4] + ': ' + result[6])
+                if result[1] == 'status':
+                    self.activity[address[1]] = result[2]
 
-                elif result[1] == 'set':
-                    pass
+                elif result[1] in ['get', 'set']:
+                    self.collection.put(result[2], (result[4], result[6]))
+                    self.activity[address[1]] = result[8]
+
+                    if result[1] == 'get' and result[6]:
+                        self.output.put(result[4] + ': ' + result[6])
+
+                    elif result[1] == 'set':
+                        pass
 
             if self.end:
                 thread.exit()
@@ -157,7 +174,7 @@ class Balancer(object):
             try:
                 sock.settimeout(3)
                 response, address = sock.recvfrom(1024)
-                self.ingress.put(response)
+                self.ingress.put((response, address))
 
             except socket.timeout:
                 pass

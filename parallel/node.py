@@ -20,12 +20,13 @@ class Node(object):
         self.sock = sock
         self.source = source
         self.peers = peers
+        self.target = ()
         self.data = {}
         self.ingress = Queue(maxsize=100)
         self.egress = HashQueue(maxsize=100)
         self.end = False
 
-    def deliver(self, message, address, drop_probability=0.2, identifier=None):
+    def deliver(self, message, address, drop_probability=0.0, identifier=None):
         # use is not None so check works for identifier = 0
         if identifier is not None:
             self.egress.put(identifier, (message, dt.now()))
@@ -38,7 +39,13 @@ class Node(object):
         self.deliver(message, address)
         dispatch_status(payload[1], 're-response', 'to', address[1])
 
-    def status(self):
+    def heartbeat(self, address):
+        result = ['response', 'status', self.egress.status()]
+        message = encode_bencode(result)
+
+        self.deliver(message, address, drop_probability=0)
+
+    def status(self, address):
         if not self.data:
             sys.stderr.write(str(dt.now()) + ' WARN database empty\n')
             return None
@@ -46,8 +53,10 @@ class Node(object):
         sys.stderr.write(str(dt.now()) + ' INFO contents start\n')
         for key, value in self.data.iteritems():
             sys.stderr.write(key + ': ' + value + '\n')
-
         sys.stderr.write(str(dt.now()) + ' INFO contents end\n')
+
+        self.heartbeat(address)
+        dispatch_status('status', 'response', 'to', address[1])
 
     def reset(self):
         sys.stderr.write(str(dt.now()) + ' WARN system reset\n')
@@ -83,12 +92,16 @@ class Node(object):
             try:
                 sock.settimeout(3)
                 request, address = sock.recvfrom(1024)
+                self.target = address
 
                 payload = decode_bencode(request)
                 self.ingress.put((payload, address))
 
             except socket.timeout:
                 sys.stderr.write('.\n')
+
+                if self.target:
+                    self.heartbeat(self.target)
 
             if self.end:
                 thread.exit()
@@ -105,7 +118,7 @@ class Node(object):
 
                 if payload[1] == 'status':
                     dispatch_status('status', 'request', 'from', address[1])
-                    self.status()
+                    self.status(address)
 
                 elif payload[1] == 'reset':
                     dispatch_status('reset', 'request', 'from', address[1])
