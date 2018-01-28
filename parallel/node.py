@@ -168,8 +168,8 @@ class Node(object):
             counter += 1
 
             try:
-                sock.settimeout(1)
-                request, address = sock.recvfrom(1024)
+                self.sock.settimeout(1)
+                request, address = self.sock.recvfrom(1024)
                 payload = decode_bencode(request)
 
                 self.process(payload, address)

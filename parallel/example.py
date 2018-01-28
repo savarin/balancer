@@ -1,4 +1,6 @@
 import sys
+import time
+import thread
 
 sys.path.insert(0, "..")
 from balancer import Balancer, BALANCER_IP
@@ -205,6 +207,9 @@ if __name__ == '__main__':
     sock = bind_socket(BALANCER_IP, source)
 
     balancer = Balancer(sock, source, targets)
-    
+    thread.start_new_thread(balancer.listen, ())
+    thread.start_new_thread(balancer.process, ())
+
     for country, capital in countries.iteritems():
         balancer.scan('set ' + country + ' ' + capital)
+        # time.sleep(1)

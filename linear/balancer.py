@@ -157,7 +157,7 @@ class Balancer(object):
 
             self.execute(command)
 
-    def read(self, instruction):
+    def scan(self, instruction):
         command = instruction.split()
         self.execute(command)
 

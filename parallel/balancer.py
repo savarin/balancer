@@ -101,6 +101,10 @@ class Balancer(object):
             self.deliver(message, address, identifier=i if i == 0 else None)
             time.sleep(0.025)
 
+            if os.getenv('EXAMPLE'):
+                result = [self.activity[target] for target in self.targets]
+                sys.stderr.write(str(result)[1:-1] + '\n')
+
             if identifier in self.collection.data:
                 return 'success!'
 
@@ -117,7 +121,9 @@ class Balancer(object):
 
         if send:
             result = self.send(message, address, identifier=payload[2])
-            sys.stderr.write(result + '\n')
+
+            if not os.getenv('EXAMPLE'):
+                sys.stderr.write(result + '\n')
 
         return message
 
@@ -133,7 +139,9 @@ class Balancer(object):
 
         if send:
             result = self.send(message, address, identifier=payload[2])
-            sys.stderr.write(result + '\n')
+
+            if not os.getenv('EXAMPLE'):
+                sys.stderr.write(result + '\n')
 
         return message
 
@@ -167,6 +175,19 @@ class Balancer(object):
         elif command[0] == 'flush':
             self.flush()
 
+    def listen(self):
+        while True:
+            try:
+                self.sock.settimeout(0.025)
+                response, address = self.sock.recvfrom(1024)
+                self.ingress.put((response, address))
+
+            except socket.timeout:
+                pass
+
+            if self.end:
+                thread.exit()
+
     def process(self):
         while True:
             if not self.ingress.empty():
@@ -189,19 +210,6 @@ class Balancer(object):
             if self.end:
                 thread.exit()
 
-    def listen(self):
-        while True:
-            try:
-                sock.settimeout(1)
-                response, address = sock.recvfrom(1024)
-                self.ingress.put((response, address))
-
-            except socket.timeout:
-                pass
-
-            if self.end:
-                thread.exit()
-
     def read(self):
         while True:
             command = raw_input('> ').split()
@@ -215,6 +223,10 @@ class Balancer(object):
                 continue
 
             self.execute(command)
+
+    def scan(self, instruction):
+        command = instruction.split()
+        self.execute(command)
 
 
 if __name__ == '__main__':
