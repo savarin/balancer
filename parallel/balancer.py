@@ -1,13 +1,16 @@
 import os
+import random
 import socket
 import sys
 import thread
+import time
 from datetime import datetime as dt
 from Queue import Queue
 
 sys.path.insert(0, "..")
 from helpers.bencode import encode_bencode, decode_bencode
 from helpers.connect import parse_arguments, bind_socket, dispatch_status
+from helpers.hashqueue import HashQueue
 
 
 BALANCER_IP = os.getenv('BALANCER_IP_ADDRESS')
@@ -20,31 +23,36 @@ class Balancer(object):
         self.source = source
         self.targets = targets
         self.ingress = Queue(maxsize=100)
+        self.collection = HashQueue(maxsize=100)
         self.output = Queue(maxsize=100)
-        self.counter = 0
+        self.identifier = 0
         self.end = False
 
-    def deliver(self, message, address):
-        self.sock.sendto(message, address)
-        self.counter += 1
+    def deliver(self, message, address, drop_probability=0.2, identifier=None):
+        # use is not None so check works for identifier = 0
+        if identifier is not None:
+            self.identifier += 1
+
+        if random.random() > drop_probability:
+            self.sock.sendto(message, address)
 
     def broadcast(self, message):
         for target in self.targets:
             address = (NODE_IP, target)
-            self.deliver(message, address)
+            self.deliver(message, address, drop_probability=0)
 
     def status(self):
-        payload = ['request', 'status', str(self.counter)]
+        payload = ['request', 'status', str(self.identifier)]
         message = encode_bencode(payload)
         self.broadcast(message)
 
     def reset(self):
-        payload = ['request', 'reset', str(self.counter)]
+        payload = ['request', 'reset', str(self.identifier)]
         message = encode_bencode(payload)
         self.broadcast(message)
 
     def exit(self):
-        payload = ['request', 'exit', str(self.counter)]
+        payload = ['request', 'exit', str(self.identifier)]
         message = encode_bencode(payload)
         self.broadcast(message)
 
@@ -52,19 +60,33 @@ class Balancer(object):
         sys.exit(0)
 
     def choose(self):
-        return self.targets[self.counter % len(self.targets)]
+        return self.targets[self.identifier % len(self.targets)]
+
+    def send(self, message, address, identifier):
+        for i in xrange(3):
+            if os.getenv('BALANCER_DEBUG'):
+                sys.stderr.write(str(dt.now()) + ' INFO attempt ' + str(i + 1) + ' of 3\n')
+
+            self.deliver(message, address, identifier=not i)
+            time.sleep(1)
+
+            if identifier in self.collection.data:
+                return 'success!'
+
+        return 'failed!'
 
     def get(self, command, send=True):
         target = self.choose()
         if os.getenv('BALANCER_DEBUG'):
             dispatch_status('get', 'request', 'to', target)
 
-        payload = ['request', 'get', self.counter, 'key', command[1]]
+        payload = ['request', 'get', self.identifier, 'key', command[1]]
         message = encode_bencode(payload)
+        address = (NODE_IP, target)
 
         if send:
-            address = (NODE_IP, target)
-            self.deliver(message, address)
+            result = self.send(message, address, identifier=payload[2])
+            sys.stderr.write(result + '\n')
 
         return message
 
@@ -73,12 +95,14 @@ class Balancer(object):
         if os.getenv('BALANCER_DEBUG'):
             dispatch_status('set', 'request', 'to', target)
 
-        payload = ['request', 'set', self.counter, 'key', command[1], 'value', command[2]]
+        payload = ['request', 'set', self.identifier, 'key', command[1],
+                   'value', command[2]]
         message = encode_bencode(payload)
+        address = (NODE_IP, target)
 
         if send:
-            address = (NODE_IP, target)
-            self.deliver(message, address)
+            result = self.send(message, address, identifier=payload[2])
+            sys.stderr.write(result + '\n')
 
         return message
 
@@ -117,6 +141,7 @@ class Balancer(object):
             if not self.ingress.empty():
                 response = self.ingress.get()
                 result = decode_bencode(response)
+                self.collection.put(result[2], (result[4], result[6]))
 
                 if result[1] == 'get' and result[6]:
                     self.output.put(result[4] + ': ' + result[6])
