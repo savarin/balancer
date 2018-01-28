@@ -3,6 +3,7 @@ import random
 import socket
 import sys
 import thread
+import time
 from datetime import datetime as dt
 from Queue import Queue
 
@@ -24,6 +25,8 @@ class Node(object):
         self.data = {}
         self.ingress = Queue(maxsize=100)
         self.egress = HashQueue(maxsize=100)
+        self.outcome = HashQueue(maxsize=100)
+        self.identifier = 0
         self.end = False
 
     def deliver(self, message, address, drop_probability=0.0, identifier=None):
@@ -67,41 +70,116 @@ class Node(object):
         self.end = True
         sys.exit(0)
 
+    def transmit(self, message, address):
+        self.identifier += 1
+        self.sock.sendto(message, address)
+
+    def relay(self, task, key, value=''):
+        payload = ['relay-request', task, str(self.identifier), 'key', key,
+                   'value', value]
+        message = encode_bencode(payload)
+
+        for peer in self.peers:
+            address = (NODE_IP, peer)
+            self.transmit(message, address)
+            dispatch_status(task, 'relay-request', 'to', peer)
+
+        time.sleep(0.01)
+
+        if key in self.outcome.data:
+            return self.outcome.get(key)
+
+        return ''
+
     def get(self, payload, address):
-        value = self.data.get(payload[4], '')
-        result = ['response', 'get', payload[2], 'key', payload[4],
-                  'value', value, 'status', self.egress.status()]
+        message = ''
 
-        message = encode_bencode(result)
-        self.deliver(message, address, identifier=payload[2])
+        if payload[0] == 'request':
+            value = self.data.get(payload[4], '')
 
-        dispatch_status('get', 'response', 'to', address[1])
+            if not value:
+                value = self.relay(payload[1], payload[4])
+
+            result = ['response', 'get', payload[2], 'key', payload[4],
+                      'value', value, 'status', self.egress.status()]
+            message = encode_bencode(result)
+
+            self.deliver(message, address, identifier=payload[2])
+            dispatch_status('get', 'response', 'to', address[1])
+
+        elif payload[0] == 'relay-request':
+            value = self.data.get(payload[4], '')
+
+            result = ['relay-response', 'get', self.identifier, 'key', payload[4],
+                      'value', value]
+            message = encode_bencode(result)
+
+            self.transmit(message, address)
+            dispatch_status('get', 'relay-response', 'to', address[1])
 
     def set(self, payload, address):
-        self.data[payload[4]] = payload[6]
-        result = ['response', 'set', payload[2], 'key', payload[4],
-                  'value', payload[6], 'status', self.egress.status()]
+        message = ''
 
-        message = encode_bencode(result)
-        self.deliver(message, address, identifier=payload[2])
+        if payload[0] == 'request':
+            value = self.relay(payload[1], payload[4], payload[6])
 
-        dispatch_status('set', 'response', 'to', address[1])
+            if not value:
+                self.data[payload[4]] = payload[6]
+
+            result = ['response', 'set', payload[2], 'key', payload[4],
+                      'value', payload[6], 'status', self.egress.status()]
+            message = encode_bencode(result)
+
+            self.deliver(message, address, identifier=payload[2])
+            dispatch_status('set', 'response', 'to', address[1])
+
+        elif payload[0] == 'relay-request':
+            value = ''
+
+            if payload[4] in self.data:
+                self.data[payload[4]] = payload[6]
+                value = payload[6]
+
+            result = ['relay-response', 'set', self.identifier, 'key', payload[4],
+                      'value', value]
+            message = encode_bencode(result)
+
+            self.transmit(message, address)
+            dispatch_status('set', 'relay-response', 'to', address[1])
+
+    def process(self, payload, address):
+        if payload[0] == 'request':
+            self.target = address
+
+        elif payload[0] == 'relay-response':
+            dispatch_status(payload[1], 'relay-response', 'from', address[1])
+
+            if payload[6]:
+                self.outcome.put(payload[4], payload[6])
+
+            return None
+
+        self.ingress.put((payload, address))
 
     def listen(self):
-        while True:
-            try:
-                sock.settimeout(3)
-                request, address = sock.recvfrom(1024)
-                self.target = address
+        counter = 0
 
+        while True:
+            counter += 1
+
+            try:
+                sock.settimeout(1)
+                request, address = sock.recvfrom(1024)
                 payload = decode_bencode(request)
-                self.ingress.put((payload, address))
+
+                self.process(payload, address)
 
             except socket.timeout:
-                sys.stderr.write('.\n')
+                if not counter % 3:
+                    sys.stderr.write('.\n')
 
-                if self.target:
-                    self.heartbeat(self.target)
+                    if self.target:
+                        self.heartbeat(self.target)
 
             if self.end:
                 thread.exit()
@@ -111,7 +189,7 @@ class Node(object):
             if not self.ingress.empty():
                 payload, address = self.ingress.get()
 
-                if self.egress.get(payload[2]):
+                if payload[0][:5] != 'relay' and self.egress.get(payload[2]):
                     dispatch_status(payload[1], 're-request', 'from', address[1])
                     self.replay(payload, address)
                     continue
@@ -129,11 +207,11 @@ class Node(object):
                     self.exit()
 
                 elif payload[1] == 'get':
-                    dispatch_status('get', 'request', 'from', address[1])
+                    dispatch_status('get', payload[0], 'from', address[1])
                     self.get(payload, address)
 
                 elif payload[1] == 'set':
-                    dispatch_status('set', 'request', 'from', address[1])
+                    dispatch_status('set', payload[0], 'from', address[1])
                     self.set(payload, address)
 
 

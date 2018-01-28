@@ -47,7 +47,7 @@ class Balancer(object):
         message = encode_bencode(payload)
         self.broadcast(message)
 
-        time.sleep(0.1)
+        time.sleep(0.025)
         if not self.activity:
             return None
 
@@ -79,7 +79,7 @@ class Balancer(object):
                 sys.stderr.write(str(dt.now()) + ' INFO attempt ' + str(i + 1) + ' of 3\n')
 
             self.deliver(message, address, identifier=i if i == 0 else None)
-            time.sleep(0.1)
+            time.sleep(0.025)
 
             if identifier in self.collection.data:
                 return 'success!'
@@ -172,7 +172,7 @@ class Balancer(object):
     def listen(self):
         while True:
             try:
-                sock.settimeout(3)
+                sock.settimeout(1)
                 response, address = sock.recvfrom(1024)
                 self.ingress.put((response, address))
 
@@ -188,9 +188,11 @@ class Balancer(object):
 
             if command[0] == 'get' and len(command) != 2:
                 sys.stderr.write('get requests requires only a key!\n')
+                continue
 
             elif command[0] == 'set' and len(command) != 3:
                 sys.stderr.write('get requests requires only a key and a value!\n')
+                continue
 
             self.execute(command)
 
